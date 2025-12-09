@@ -1,6 +1,6 @@
 import sys
 # from shared_jobs.Python.check_disk import check_disk
-from check_disk import check_disk
+from check_disk import check_disk_usage
 
 def main():
     if len(sys.argv) < 3:
