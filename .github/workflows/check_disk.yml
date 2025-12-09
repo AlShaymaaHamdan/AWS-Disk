@@ -41,7 +41,7 @@ jobs:
 
       - name: Run disk check
         run: |
-          python check_disk.py \
+          python output.py \
             "${{ github.event.inputs.target }}" \
             "${{ github.event.inputs.drive }}" \
             "${{ github.event.inputs.region }}"
