@@ -12,7 +12,23 @@ def send_ssm_command(ssm_client, instance_id, command, is_windows=False):
 
     command_id = response["Command"]["CommandId"]
 
-    # Extract region from client so we don't touch your precious waiter
     region = ssm_client.meta.region_name
 
-    return wait_for_ssm_command(command_id, region)
+    wait_for_ssm_command(command_id, region)
+
+    # now fetch output manually
+    time.sleep(2)
+
+    resp = ssm_client.list_command_invocations(
+        CommandId=command_id,
+        InstanceId=instance_id,
+        Details=True
+    )
+
+    invocation = resp["CommandInvocations"][0]
+    plugin = invocation["CommandPlugins"][0]
+
+    return {
+        "Status": invocation["Status"],
+        "StandardOutputContent": plugin.get("Output", "")
+    }
