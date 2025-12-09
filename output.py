@@ -23,10 +23,10 @@ def main():
     #     sys.exit(1)
     result = check_disk(target, drive, region)
     print("✅ Disk check completed successfully!\n")
-        print(f"Instance ID : {result['InstanceId']}")
-        print(f"OS Platform : {result['Platform']}")
-        print(f"EBS Volume  : {result['VolumeId']}")
-        print(f"Disk Usage  : {result['UsedGB']}GB used of {result['TotalGB']}GB ({result['UsedPercent']}%)")
+    print(f"Instance ID : {result['InstanceId']}")
+    print(f"OS Platform : {result['Platform']}")
+    print(f"EBS Volume  : {result['VolumeId']}")
+    print(f"Disk Usage  : {result['UsedGB']}GB used of {result['TotalGB']}GB ({result['UsedPercent']}%)")
 
 if __name__ == "__main__":
     main()
