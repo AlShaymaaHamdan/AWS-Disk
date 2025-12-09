@@ -70,4 +70,4 @@ def check_disk_usage(target, drive="/", region=None):
     # 8. Print volume ID (because you asked for noise)
     print(f" EBS Volume ID for {drive} on {instance_id}: {volume_id}")
 
-    # return result
+    return result
