@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import sys
 from shared_jobs.Python.check_disk import check_disk
 

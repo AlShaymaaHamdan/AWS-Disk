@@ -1,6 +1,6 @@
 import sys
 import boto3
-sys.path.append("shared_jobs/Python")
+# sys.path.append("shared_jobs/Python")
 from send_ssm_command import send_ssm_command
 
 

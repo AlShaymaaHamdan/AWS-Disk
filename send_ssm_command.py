@@ -1,6 +1,6 @@
 import sys
 
-sys.path.append("shared_jobs/Python")
+# sys.path.append("shared_jobs/Python")
 from wait_for_status import wait_for_ssm_command
 
 def send_ssm_command(ssm_client, instance_id, command, is_windows=False):
