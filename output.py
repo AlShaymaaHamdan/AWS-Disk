@@ -21,7 +21,7 @@ def main():
     # except Exception as e:
     #     print(f"❌ Disk check failed: {e}", file=sys.stderr)
     #     sys.exit(1)
-    result = check_disk(target, drive, region)
+    result = check_disk_usage(target, drive, region)
     print("✅ Disk check completed successfully!\n")
     print(f"Instance ID : {result['InstanceId']}")
     print(f"OS Platform : {result['Platform']}")
