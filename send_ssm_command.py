@@ -1,5 +1,6 @@
 import boto3
 from wait_for_status import wait_for_ssm_command
+import time
 
 def send_ssm_command(ssm_client, instance_id, command, is_windows=False):
     doc_name = "AWS-RunPowerShellScript" if is_windows else "AWS-RunShellScript"
