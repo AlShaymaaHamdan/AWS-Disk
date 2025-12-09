@@ -1,148 +1,73 @@
 import boto3
-import sys
-import time
-import re
-
-POLL_INTERVAL = 2
-POLL_RETRIES = 30
-
-def send_ssm_command(ssm_client, instance_id, command, is_windows):
-    doc = "AWS-RunPowerShellScript" if is_windows else "AWS-RunShellScript"
-
-    resp = ssm_client.send_command(
-        InstanceIds=[instance_id],
-        DocumentName=doc,
-        Parameters={"commands": [command]},
-    )
-    cmd_id = resp["Command"]["CommandId"]
-
-    for _ in range(POLL_RETRIES):
-        time.sleep(POLL_INTERVAL)
-        out = ssm_client.get_command_invocation(CommandId=cmd_id, InstanceId=instance_id)
-
-        if out["Status"] in ("Success", "Failed", "Cancelled", "TimedOut"):
-            return out
-
-    print("SSM command timed out", file=sys.stderr)
-    sys.exit(1)
-
-def normalize_drive_windows(drive):
-    d = drive.strip() # Trim whitespaces
-    if len(d) == 1:
-        return d.upper() + ":" # add : after windows drives ex. C:
-    if d.endswith("\\") or d.endswith("/"):
-        d = d[:-1] # remove trailing slashes
-    if not d.endswith(":"):
-        d = d.upper() + ":"
-    return d
-
-def parse_windows_output(output):
-    m = re.search( # output will be like this: Drive:C: TotalGB:100 UsedGB:60 FreeGB:40 UsedPercent:60%
-        r"TotalGB:([0-9\.]+)\s+UsedGB:([0-9\.]+)\s+FreeGB:([0-9\.]+)\s+UsedPercent:([0-9]+)%", 
-        output
-    )
-    if not m:
-        return None
-
-    total, used, free, pct = m.groups() # Extract the four captured values
-    return { # Return them as a dictionary
-        "total": total,
-        "used": used,
-        "free": free,
-        "pct": pct
-    }
+from resolve_instance_id import resolve_instance_id
+from detect_os import detect_os
+from send_ssm_command import send_ssm_command
+from find_EBS_vol import find_volume_for_drive
 
 
-def parse_linux_output(output):
+def check_disk_usage(target, drive="/", region=None):
     """
-    Parse 'df -h <mount>' output and extract:
-    size, used, avail, percent, mount.
+    Check disk usage on an EC2 instance and find the linked EBS volume.
 
-    Returns dict or None if not matched.
+    Returns:
+        dict with disk usage and volume id
     """
-    # Typical df -h line:
-    # /dev/xvda1   10G   8G   2G   80%   /
-    pattern = (
-        r"(?P<filesystem>\S+)\s+"
-        r"(?P<size>\S+)\s+"
-        r"(?P<used>\S+)\s+"
-        r"(?P<avail>\S+)\s+"
-        r"(?P<pct>\d+)%\s+"
-        r"(?P<mount>.+)"
-    )
 
-    m = re.search(pattern, output)
-    if not m:
-        return None
+    ec2 = boto3.client("ec2", region_name=region) if region else boto3.client("ec2")
+    ssm = boto3.client("ssm", region_name=region) if region else boto3.client("ssm")
 
-    return {
-        "filesystem": m.group("filesystem"),
-        "size": m.group("size"),
-        "used": m.group("used"),
-        "avail": m.group("avail"),
-        "pct": m.group("pct"),
-        "mount": m.group("mount").strip()
-    }
+    # 1.Resolve instance ID
+    instance_id = resolve_instance_id(ec2, target)
 
-def main():
-    if len(sys.argv) != 4:
-        print("Usage: python check_disk_usage.py <instance-id> <os-type> <drive-or-mount>", file=sys.stderr)
-        sys.exit(1)
+    # 2. Detect OS
+    platform = detect_os(instance_id, region)
 
-    instance_id = sys.argv[1].strip()
-    os_type = sys.argv[2].strip().lower()
-    drive = sys.argv[3].strip()
-    region = sys.argv[4].strip()
-
-    ssm = boto3.client("ssm", region_name=region)
-
-    # WINDOWS
-    if "win" in os_type:
-        drive = normalize_drive_windows(drive)
-        command = ( # Powershell Command that calculated data (total, free, used, percentage)
-            f"$drv='{drive}'; "
-            f"$ld=Get-CimInstance -ClassName Win32_LogicalDisk -Filter \"DeviceID='$drv'\"; "
-            f"if(-not $ld){{ Write-Output \"DriveNotFound:$drv\"; exit 0 }}; "
-            f"$sizeGB=[math]::Round($ld.Size/1GB,2); "
-            f"$freeGB=[math]::Round($ld.FreeSpace/1GB,2); "
-            f"$usedGB=[math]::Round($sizeGB - $freeGB,2); "
-            f"$usedPct=[math]::Round((($sizeGB - $freeGB)/$sizeGB)*100,0); "
-            f"Write-Output \"TotalGB:$sizeGB UsedGB:$usedGB FreeGB:$freeGB UsedPercent:$usedPct%\""
+    # 3. Build OS-specific disk check command
+    if "win" in platform.lower():
+        drive_letter = drive.strip(":")
+        cmd = (
+            f"$d = Get-Volume -DriveLetter {drive_letter}; "
+            f"$used = ($d.Size - $d.SizeRemaining); "
+            f"$total = $d.Size; "
+            f"$percent = [math]::Round(($used / $total) * 100,2); "
+            f'Write-Output "$percent,$([math]::Round($used/1GB,2)),$([math]::Round($total/1GB,2))"'
         )
-
-        out = send_ssm_command(ssm, instance_id, command, is_windows=True)
-        stdout = out.get("StandardOutputContent", "").strip()
-
-        info = parse_windows_output(stdout)
-        if not info:
-            print("Could not parse Windows disk output.", file=sys.stderr)
-            print(stdout)
-            sys.exit(1)
-
-        print(
-            f"Drive {drive} | Total: {info['total']} GB | Used: {info['used']} GB | "
-            f"Free: {info['free']} GB | UsedPercent: {info['pct']}%"
-        )
-        return
-
-    # LINUX
+        is_windows = True
     else:
-        command = f"df -h {drive} | tail -1" # shell command
-        out = send_ssm_command(ssm, instance_id, command, is_windows=False)
-        stdout = out.get("StandardOutputContent", "").strip()
-
-        info = parse_linux_output(stdout)
-        if not info:
-            print("Could not parse Linux disk output.", file=sys.stderr)
-            print(stdout)
-            sys.exit(1)
-
-        print(
-            f"Filesystem: {info['filesystem']} | Total: {info['size']} | "
-            f"Used: {info['used']} | Free: {info['avail']} | "
-            f"UsedPercent: {info['pct']}% | Mount: {info['mount']}"
+        cmd = (
+            f"df -BG {drive} | tail -1 | "
+            "awk '{print $3\",\"$2\",\"$5}' | tr -d 'G%'"
         )
+        is_windows = False
 
+    # 4. Run SSM command for disk usage
+    resp = send_ssm_command(ssm, instance_id, cmd, is_windows=is_windows)
+    output = resp["StandardOutputContent"].strip()
 
-if __name__ == "__main__":
-    main()
+    # 5. Parse output
+    try:
+        if is_windows:
+            used_pct, used_gb, total_gb = output.split(",")
+        else:
+            used_gb, total_gb, used_pct = output.split(",")
+    except Exception:
+        raise RuntimeError(f"Failed to parse disk usage output: {output}")
+
+    # 6. Find matching EBS volume
+    volume_id = find_volume_for_drive(ec2, instance_id, platform, drive)
+
+    # 7. Result object
+    result = {
+        "InstanceId": instance_id,
+        "Platform": platform,
+        "Drive": drive,
+        "UsedPercent": float(used_pct),
+        "UsedGB": float(used_gb),
+        "TotalGB": float(total_gb),
+        "VolumeId": volume_id,
+    }
+
+    # 8. Print volume ID (because you asked for noise)
+    print(f" EBS Volume ID for {drive} on {instance_id}: {volume_id}")
+
+    # return result

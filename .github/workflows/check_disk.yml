@@ -1,0 +1,47 @@
+name: Check EC2 Disk Usage
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Instance ID, Name tag, or IP"
+        required: true
+      drive:
+        description: "Drive letter (Windows) or mount point (Linux)"
+        required: true
+        default: "/"
+      region:
+        description: "AWS Region"
+        required: true
+        default: "us-west-2"
+
+jobs:
+  check-disk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          pip install boto3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ github.event.inputs.region }}
+
+      - name: Run disk check
+        run: |
+          python check_disk.py \
+            "${{ github.event.inputs.target }}" \
+            "${{ github.event.inputs.drive }}" \
+            "${{ github.event.inputs.region }}"
