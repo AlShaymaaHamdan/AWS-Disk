@@ -18,10 +18,11 @@ def check_disk_usage(target, drive="/", region=None):
 
     # 1.Resolve instance ID
     instance_id = resolve_instance_id(ec2, target)
+    print(instance_id)
 
     # 2. Detect OS
     platform = detect_os(instance_id, region)
-
+    print(platform)
     # 3. Build OS-specific disk check command
     if "win" in platform.lower():
         drive_letter = drive.strip(":")
